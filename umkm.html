@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <title>Solok Selatan Smart Map</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Poppins', sans-serif; display: flex; height: 100vh; overflow: hidden; }
+        
+        /* 1. SIDEBAR (Daftar UMKM) */
+        #sidebar {
+            width: 350px;
+            background: #fff;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .sidebar-header {
+            padding: 20px;
+            background: #1a73e8; /* Warna Biru Google */
+            color: white;
+        }
+        .sidebar-header h2 { margin: 0; font-size: 18px; font-weight: 600; }
+        .sidebar-header p { margin: 5px 0 0; font-size: 12px; opacity: 0.9; }
+
+        /* Filter Chips */
+        .filters { padding: 10px 15px; display: flex; gap: 8px; overflow-x: auto; border-bottom: 1px solid #eee; }
+        .chip {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            cursor: pointer;
+            border: 1px solid #ddd;
+            background: #f8f9fa;
+            white-space: nowrap;
+            transition: 0.2s;
+        }
+        .chip.active { background: #1a73e8; color: white; border-color: #1a73e8; }
+        
+        /* List Items */
+        #list-container { flex: 1; overflow-y: auto; padding: 10px; }
+        .umkm-card {
+            display: flex;
+            gap: 10px;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: 0.2s;
+            border: 1px solid #eee;
+        }
+        .umkm-card:hover { background-color: #f1f3f4; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .card-img { width: 70px; height: 70px; border-radius: 6px; object-fit: cover; background: #ddd; }
+        .card-info h4 { margin: 0 0 5px; font-size: 15px; color: #202124; }
+        .card-info .type { font-size: 11px; color: #1a73e8; font-weight: bold; text-transform: uppercase; }
+        .card-info .rating { color: #fbbc04; font-size: 12px; margin-bottom: 5px; }
+        
+        /* 2. PETA */
+        #map { flex: 1; height: 100%; }
+
+        /* Custom Popup Style */
+        .leaflet-popup-content-wrapper { border-radius: 12px; overflow: hidden; padding: 0; }
+        .leaflet-popup-content { margin: 0; width: 280px !important; }
+        .popup-hero { height: 140px; background-size: cover; background-position: center; position: relative; }
+        .popup-cat { position: absolute; top: 10px; left: 10px; background: rgba(0,0,0,0.6); color: white; padding: 3px 8px; border-radius: 4px; font-size: 10px; }
+        .popup-body { padding: 15px; }
+        .popup-title { font-size: 16px; font-weight: bold; margin-bottom: 5px; color: #333; }
+        .popup-desc { font-size: 12px; color: #666; margin-bottom: 10px; line-height: 1.4; }
+        .popup-actions { display: flex; gap: 8px; margin-top: 10px; }
+        .btn-action { 
+            flex: 1; text-align: center; padding: 8px; border-radius: 6px; font-size: 12px; 
+            text-decoration: none; font-weight: bold; 
+        }
+        .btn-wa { background: #25D366; color: white; } /* Hijau WA */
+        .btn-route { background: #1a73e8; color: white; } /* Biru Rute */
+
+        /* Responsive Mobile */
+        @media (max-width: 768px) {
+            body { flex-direction: column-reverse; } /* Peta di atas, list di bawah */
+            #sidebar { width: 100%; height: 40vh; border-radius: 20px 20px 0 0; margin-top: -20px; z-index: 2000; }
+            #map { height: 65vh; }
+        }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <h2>Solsel Smart Map</h2>
+            <p>Jelajahi 10 UMKM & Wisata Terbaik</p>
+        </div>
+        
+        <div class="filters">
+            <div class="chip active" onclick="filterData('all', this)">Semua</div>
+            <div class="chip" onclick="filterData('Wisata', this)">🌲 Wisata</div>
+            <div class="chip" onclick="filterData('Kuliner', this)">🍽️ Kuliner</div>
+            <div class="chip" onclick="filterData('Oleh-oleh', this)">🎁 Oleh-oleh</div>
+            <div class="chip" onclick="filterData('Penginapan', this)">🏨 Hotel</div>
+        </div>
+
+        <div id="list-container">
+            </div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // --- 1. DATASET: 10 UMKM SOLOK SELATAN (High Quality Data) ---
+        const umkmData = [
+            {
+                id: 1,
+                nama: "Kawasan Saribu Rumah Gadang",
+                kategori: "Wisata",
+                rating: 4.8,
+                lat: -1.4925, lon: 101.1234, // Muara Labuh
+                desc: "Kawasan cagar budaya dengan ratusan rumah gadang asli Minangkabau.",
+                img: "https://upload.wikimedia.org/wikipedia/commons/thumb/c/cd/Saribu_Rumah_Gadang_Solok_Selatan.jpg/640px-Saribu_Rumah_Gadang_Solok_Selatan.jpg",
+                wa: "6281234567890"
+            },
+            {
+                id: 2,
+                nama: "Air Terjun Tansi Ampek",
+                kategori: "Wisata",
+                rating: 4.7,
+                lat: -1.5833, lon: 101.2667, 
+                desc: "Air terjun indah di kaki Gunung Kerinci, cocok untuk petualangan.",
+                img: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEj7XQe_gH_kZkXz_xZz_xZz/s1600/air+terjun+tansi+ampek.jpg",
+                wa: "6281234567890"
+            },
+            {
+                id: 3,
+                nama: "Goa Batu Kapal",
+                kategori: "Wisata",
+                rating: 4.6,
+                lat: -1.5100, lon: 101.3500, // Sangir Balai Janggo
+                desc: "Formasi batuan kapur unik yang menyerupai kapal layar, spot foto instagramable.",
+                img: "https://phinemo.com/wp-content/uploads/2018/10/goa-batu-kapal.jpg",
+                wa: "6281234567890"
+            },
+            {
+                id: 4,
+                nama: "Masjid Agung Solok Selatan",
+                kategori: "Wisata",
+                rating: 4.9,
+                lat: -1.5650, lon: 101.2380, // Padang Aro
+                desc: "Landmark religi megah di pusat Padang Aro dengan arsitektur modern.",
+                img: "https://upload.wikimedia.org/wikipedia/commons/2/2f/Masjid_Agung_Solok_Selatan.jpg",
+                wa: "6281234567890"
+            },
+            {
+                id: 5,
+                nama: "Puncak Bangun Rejo",
+                kategori: "Wisata",
+                rating: 4.5,
+                lat: -1.5500, lon: 101.2200, 
+                desc: "Spot melihat pemandangan kebun teh dan Gunung Kerinci dari ketinggian.",
+                img: "https://dynamic-media-cdn.tripadvisor.com/media/photo-o/11/56/6e/0f/puncak-bangun-rejo.jpg?w=600&h=400&s=1",
+                wa: "6281234567890"
+            },
+            {
+                id: 6,
+                nama: "RM Simpang Raya Muara Labuh",
+                kategori: "Kuliner",
+                rating: 4.6,
+                lat: -1.4880, lon: 101.0500,
+                desc: "Rumah makan Padang legendaris dengan menu rendang dan ayam pop terbaik.",
+                img: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRz-dummy-food&s", 
+                wa: "628111222333"
+            },
+            {
+                id: 7,
+                nama: "Kopi Solok Selatan (Koerintji)",
+                kategori: "Oleh-oleh",
+                rating: 4.8,
+                lat: -1.5600, lon: 101.2300,
+                desc: "Pusat oleh-oleh biji kopi Arabika Kerinci terbaik, winner Avpa Paris.",
+                img: "https://asset.kompas.com/crops/coffee.jpg", // Dummy
+                wa: "628555666777"
+            },
+            {
+                id: 8,
+                nama: "Hotel Pesona Alam",
+                kategori: "Penginapan",
+                rating: 4.3,
+                lat: -1.5700, lon: 101.2400,
+                desc: "Akomodasi nyaman di pusat kota Padang Aro dengan view gunung.",
+                img: "https://cf.bstatic.com/xdata/images/hotel/max1024x768/dummy.jpg",
+                wa: "628999888777"
+            },
+            {
+                id: 9,
+                nama: "Keripik Sanjai Balado Uni",
+                kategori: "Oleh-oleh",
+                rating: 4.5,
+                lat: -1.4950, lon: 101.1300,
+                desc: "Oleh-oleh khas keripik pedas manis buatan rumahan, renyah dan gurih.",
+                img: "https://dummyimage.com/300x200/d63333/fff&text=Keripik",
+                wa: "628111000111"
+            },
+            {
+                id: 10,
+                nama: "Cafe Liki (Kebun Teh)",
+                kategori: "Kuliner",
+                rating: 4.7,
+                lat: -1.6000, lon: 101.2800,
+                desc: "Nongkrong asik di tengah hamparan kebun teh Liki yang hijau.",
+                img: "https://dummyimage.com/300x200/28a745/fff&text=Liki+Cafe",
+                wa: "628777888999"
+            }
+        ];
+
+        // --- 2. SETUP PETA ---
+        const map = L.map('map', { zoomControl: false }).setView([-1.54, 101.20], 10); // View mencakup Muara Labuh & Padang Aro
+        
+        // Tambahkan Zoom Control di posisi yang lebih enak (Kanan Bawah)
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+        // Tile Layer yang bersih (CartoDB Positron) agar terlihat modern
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap & CartoDB',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(map);
+
+        // --- 3. LOGIKA RENDER ---
+        let markers = [];
+        const listContainer = document.getElementById('list-container');
+
+        // Ikon Custom
+        function getIcon(kategori) {
+            let color = 'blue';
+            let iconClass = 'fa-map-marker-alt';
+            
+            if (kategori === 'Wisata') { color = '#198754'; iconClass = 'fa-tree'; } // Hijau
+            if (kategori === 'Kuliner') { color = '#dc3545'; iconClass = 'fa-utensils'; } // Merah
+            if (kategori === 'Oleh-oleh') { color = '#fd7e14'; iconClass = 'fa-gift'; } // Orange
+            if (kategori === 'Penginapan') { color = '#6610f2'; iconClass = 'fa-bed'; } // Ungu
+
+            return L.divIcon({
+                className: 'custom-icon',
+                html: `<div style="background-color: ${color}; width: 30px; height: 30px; border-radius: 50%; display: flex; justify-content: center; align-items: center; border: 2px solid white; box-shadow: 0 3px 5px rgba(0,0,0,0.3);">
+                        <i class="fas ${iconClass}" style="color: white; font-size: 14px;"></i>
+                       </div>`,
+                iconSize: [30, 30],
+                iconAnchor: [15, 30],
+                popupAnchor: [0, -30]
+            });
+        }
+
+        // Fungsi Render Data ke Peta & List
+        function renderData(filter = 'all') {
+            // Bersihkan marker lama
+            markers.forEach(m => map.removeLayer(m));
+            markers = [];
+            listContainer.innerHTML = ''; // Bersihkan list
+
+            // Filter Data
+            const filtered = filter === 'all' ? umkmData : umkmData.filter(item => item.kategori === filter);
+
+            filtered.forEach(item => {
+                // 1. BUAT MARKER DI PETA
+                const marker = L.marker([item.lat, item.lon], { icon: getIcon(item.kategori) }).addTo(map);
+                
+                // Konten Popup HTML (Mirip Google Maps)
+                const popupContent = `
+                    <div class="popup-hero" style="background-image: url('${item.img}');">
+                        <span class="popup-cat">${item.kategori}</span>
+                    </div>
+                    <div class="popup-body">
+                        <div class="popup-title">${item.nama}</div>
+                        <div style="color: #fbbc04; font-size: 12px; margin-bottom: 5px;">
+                            ${'⭐'.repeat(Math.floor(item.rating))} (${item.rating})
+                        </div>
+                        <div class="popup-desc">${item.desc}</div>
+                        <div class="popup-actions">
+                            <a href="https://wa.me/${item.wa}?text=Halo%20saya%20lihat%20di%20Peta%20Solsel,%20mau%20tanya..." target="_blank" class="btn-action btn-wa">
+                                <i class="fab fa-whatsapp"></i> Chat
+                            </a>
+                            <a href="https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lon}" target="_blank" class="btn-action btn-route">
+                                <i class="fas fa-directions"></i> Rute
+                            </a>
+                        </div>
+                    </div>
+                `;
+                marker.bindPopup(popupContent);
+                markers.push(marker);
+
+                // 2. BUAT ITEM DI SIDEBAR (LIST)
+                const card = document.createElement('div');
+                card.className = 'umkm-card';
+                card.innerHTML = `
+                    <img src="${item.img}" class="card-img" onerror="this.src='https://via.placeholder.com/70'">
+                    <div class="card-info">
+                        <span class="type">${item.kategori}</span>
+                        <h4>${item.nama}</h4>
+                        <div class="rating">⭐ ${item.rating} • Solok Selatan</div>
+                    </div>
+                `;
+                
+                // Klik di List -> Zoom ke Peta
+                card.onclick = () => {
+                    map.flyTo([item.lat, item.lon], 14, { duration: 1.5 });
+                    marker.openPopup();
+                    // Di mobile, tutup sidebar sedikit biar peta kelihatan (optional logic)
+                };
+                
+                listContainer.appendChild(card);
+            });
+        }
+
+        // Fungsi Filter Tombol
+        function filterData(kategori, btn) {
+            // Update UI Tombol Active
+            document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            
+            // Render ulang
+            renderData(kategori);
+        }
+
+        // Jalankan Pertama Kali
+        renderData();
+
+    </script>
+</body>
+  </html>
+              
